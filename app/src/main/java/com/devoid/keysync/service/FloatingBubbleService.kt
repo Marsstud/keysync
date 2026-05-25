@@ -5,10 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.compose.animation.AnimatedVisibility
@@ -139,13 +141,15 @@ class FloatingBubbleService : Service() {
         )
         floatingBubbleLP.gravity = Gravity.START or Gravity.TOP
 
-        // Контейнер с клавишами — наследуем LayoutParams от bubble (WRAP_CONTENT)
-        // чтобы не триггерить Game Launcher/Samsung блокировку оверлеев.
-        // После запуска coroutine collector сразу расширит до MATCH_PARENT,
-        // но к тому моменту игра уже проинициализирует SurfaceView.
-        val itemsContainerLP = WindowManager.LayoutParams()
-        itemsContainerLP.copyFrom(floatingBubbleLP)
-        itemsContainerLP.flags = itemsContainerLP.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        // LayoutParams для контейнера с клавишами — добавляем только в конфиг-режиме
+        val containerLP = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
 
         containerView =
             getItemsContainerView { id ->
@@ -161,49 +165,28 @@ class FloatingBubbleService : Service() {
                 stateManager.get().addNewItem(itemType)
             }
         )
+
+        // Реагируем на разворачивание/сворачивание бабла
+        // В игровом режиме (collapsed) контейнер ПОЛНОСТЬЮ УДАЛЁН из WindowManager
         scope.launch {
             stateManager.get().isBubbleExpanded.collect { expanded ->
-                itemsContainerLP.apply {
-                    width = WindowManager.LayoutParams.MATCH_PARENT
-                    height = containerView?.rootView?.height ?: 0
-                }
                 if (expanded) {
-                    // Конфигурация клавиш — оверлей интерактивный
-                    itemsContainerLP.flags =
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    stateManager.get().windowManager.updateViewLayout(
-                        containerView,
-                        itemsContainerLP
-                    )
+                    if (containerView?.isAttachedToWindow != true) {
+                        stateManager.get().windowManager.addView(containerView, containerLP)
+                    }
                     containerView?.requestFocus()
                     stateManager.get().clearActivePointers()
                 } else {
-                    // Режим игры — оверлей не крадет фокус и не блокирует SurfaceView
-                    // FLAG_NOT_FOCUSABLE: игра сохраняет фокус и рендеринг
-                    // FLAG_NOT_TOUCHABLE: тач проходит сквозь на игру
-                    // FLAG_LAYOUT_IN_SCREEN: рисуем поверх всего
-                    itemsContainerLP.flags =
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    stateManager.get().windowManager.updateViewLayout(
-                        containerView,
-                        itemsContainerLP
-                    )
-                    // НЕ вызываем requestFocus() — это крадет фокус у игры
+                    if (containerView?.isAttachedToWindow == true) {
+                        stateManager.get().windowManager.removeViewImmediate(containerView)
+                    }
                 }
             }
         }
-        stateManager.get().windowManager.addView(containerView, itemsContainerLP)
+
+        // Только плавающий бабл — никакого полноэкранного оверлея!
         floatingBubbleLP.y = 200
         stateManager.get().windowManager.addView(floatingBubbleView, floatingBubbleLP)
-        // Запрос захвата указателя (мышь) работает даже без фокуса окна
-        containerView?.postDelayed({
-            containerView?.requestPointerCapture()
-        }, 1000)
-        // НЕ вызываем requestFocus() — это перехватит фокус у игры
     }
 
 
@@ -287,15 +270,19 @@ class FloatingBubbleService : Service() {
         super.onConfigurationChanged(newConfig)
         stateManager.get().reloadItemsAfterDisplayChange()
 
-        containerView?.let { cView ->
-            val itemsContainerLP = cView.layoutParams as? WindowManager.LayoutParams
-            if (itemsContainerLP != null) {
-                itemsContainerLP.width = WindowManager.LayoutParams.MATCH_PARENT
-                itemsContainerLP.height = cView.rootView?.height ?: 0
-                try {
-                    stateManager.get().windowManager.updateViewLayout(cView, itemsContainerLP)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update container layout on config change", e)
+        // Обновляем layout только если контейнер сейчас в WindowManager (конфиг-режим)
+        if (stateManager.get().isBubbleExpanded.value) {
+            containerView?.let { cView ->
+                if (cView.isAttachedToWindow) {
+                    val itemsContainerLP = cView.layoutParams as? WindowManager.LayoutParams
+                    if (itemsContainerLP != null) {
+                        itemsContainerLP.width = WindowManager.LayoutParams.MATCH_PARENT
+                        try {
+                            stateManager.get().windowManager.updateViewLayout(cView, itemsContainerLP)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to update container layout on config change", e)
+                        }
+                    }
                 }
             }
         }
@@ -331,10 +318,14 @@ class FloatingBubbleService : Service() {
 
     private fun removeAllViews() {
         containerView?.let {
-            stateManager.get().windowManager.removeViewImmediate(it)
+            if (it.isAttachedToWindow) {
+                stateManager.get().windowManager.removeViewImmediate(it)
+            }
         }
         floatingBubbleView?.let {
-            stateManager.get().windowManager.removeViewImmediate(it)
+            if (it.isAttachedToWindow) {
+                stateManager.get().windowManager.removeViewImmediate(it)
+            }
         }
     }
 

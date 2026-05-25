@@ -16,7 +16,6 @@ import com.devoid.keysync.model.DisplayContext
 import com.devoid.keysync.model.DraggableItem
 import com.devoid.keysync.model.DraggableItemType
 import com.devoid.keysync.domain.EventHandler
-import com.devoid.keysync.data.external.ShizukuInputMonitor
 import com.devoid.keysync.data.external.ShizukuSystemServerAPi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -38,7 +37,15 @@ class FloatingWindowStateManager @Inject constructor(
 
     private val shizukuSystemServerAPi = ShizukuSystemServerAPi()
     private val eventHandler: EventHandler by lazy { shizukuSystemServerAPi.getEventHandler() }
-    private val inputMonitor: ShizukuInputMonitor by lazy { ShizukuInputMonitor(eventHandler) }
+    // Для мыши из Shizuku: конвертируем абсолютные координаты в относительные дельты
+    private var shizukuLastMouseX = -1f
+    private var shizukuLastMouseY = -1f
+    private val inputMonitor: ShizukuInputMonitor by lazy {
+        ShizukuInputMonitor(
+            eventHandler = eventHandler,
+            onMotionEvent = { this.onShizukuMouseEvent(it) }
+        )
+    }
     val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
     private val displayMetrics: android.util.DisplayMetrics
         get() = context.resources.displayMetrics
@@ -213,6 +220,36 @@ class FloatingWindowStateManager @Inject constructor(
             }
         }
         return true
+    }
+
+    /** Обработка мыши от Shizuku (абсолютные координаты → дельты). */
+    private fun onShizukuMouseEvent(event: MotionEvent) {
+        if (_isBubbleExpanded.value) return
+        val sens = sensitivity
+        when (event.action) {
+            MotionEvent.ACTION_MOVE -> {
+                val dx = if (shizukuLastMouseX < 0) 0f else event.rawX - shizukuLastMouseX
+                val dy = if (shizukuLastMouseY < 0) 0f else event.rawY - shizukuLastMouseY
+                shizukuLastMouseX = event.rawX
+                shizukuLastMouseY = event.rawY
+                val offset = Offset(dx, dy) * sens
+                if (!isShootingMode.value) {
+                    val position = _mousePointerOffset.value + offset
+                    _mousePointerOffset.value = Offset(
+                        position.x.coerceIn(0f, displayMetrics.widthPixels.toFloat()),
+                        position.y.coerceIn(0f, displayMetrics.heightPixels.toFloat())
+                    )
+                }
+                eventHandler.handlePointerMove(offset)
+            }
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                eventHandler.mousePointerPosition = pointerOffset.value
+                eventHandler.handleMouseButton(event.actionButton, true)
+            }
+            MotionEvent.ACTION_BUTTON_RELEASE -> {
+                eventHandler.handleMouseButton(event.actionButton, false)
+            }
+        }
     }
 
     fun clearActivePointers() {

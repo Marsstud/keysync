@@ -1,4 +1,4 @@
-package com.devoid.keysync.data.external
+package com.devoid.keysync.service
 
 import android.os.Binder
 import android.os.Handler
@@ -8,12 +8,16 @@ import android.os.Parcel
 import android.util.Log
 import android.view.InputEvent
 import android.view.KeyEvent
+import android.view.MotionEvent
 import com.devoid.keysync.domain.EventHandler
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
 import java.lang.reflect.Proxy
 
-class ShizukuInputMonitor(private val eventHandler: EventHandler) {
+class ShizukuInputMonitor(
+    private val eventHandler: EventHandler,
+    private val onMotionEvent: ((MotionEvent) -> Unit)? = null
+) {
     private val TAG = "ShizukuInputMonitor"
 
     private var inputManager: Any? = null
@@ -24,13 +28,6 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /**
-     * Binder that receives IInputFilter calls from the system server.
-     * Transaction codes match the auto-generated IInputFilter.Stub layout:
-     *  1 = onInputEvent(InputEvent, int displayId)
-     *  2 = onInstalled()
-     *  3 = onUninstalled()
-     */
     private val filterBinder = object : Binder() {
         init {
             attachInterface(null, DESCRIPTOR)
@@ -46,7 +43,7 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
                     data.enforceInterface(DESCRIPTOR)
                     if (data.readInt() != 0) {
                         val event = InputEvent.CREATOR.createFromParcel(data)
-                        data.readInt() // displayId
+                        data.readInt()
                         onInputEvent(event)
                     }
                     return true
@@ -64,7 +61,6 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
         }
     }
 
-    /** Start monitoring input events system-wide through Shizuku. */
     fun start() {
         if (registered) return
         stopped = false
@@ -81,8 +77,6 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
             val iInputFilterClass = Class.forName(IINPUT_FILTER_CLASS)
             setInputFilterMethod = ifaceClass.getMethod("setInputFilter", iInputFilterClass)
 
-            // Dynamic proxy implements IInputFilter so the AIDL proxy can call
-            // asBinder() and send our filterBinder to the system server.
             val filterProxy = Proxy.newProxyInstance(
                 iInputFilterClass.classLoader,
                 arrayOf(iInputFilterClass)
@@ -105,7 +99,6 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
         }
     }
 
-    /** Stop monitoring and remove the system input filter. */
     fun stop() {
         if (!registered) return
         stopped = true
@@ -118,12 +111,16 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
         registered = false
     }
 
-    /** Forward key events to the EventHandler on the main thread. */
     private fun onInputEvent(event: InputEvent) {
-        if (event is KeyEvent && !stopped) {
-            mainHandler.post {
+        if (stopped) return
+        when (event) {
+            is KeyEvent -> mainHandler.post {
                 if (stopped) return@post
                 eventHandler.handleKeyEvent(event)
+            }
+            is MotionEvent -> mainHandler.post {
+                if (stopped) return@post
+                onMotionEvent?.invoke(event)
             }
         }
     }
@@ -131,8 +128,6 @@ class ShizukuInputMonitor(private val eventHandler: EventHandler) {
     companion object {
         private const val DESCRIPTOR = "android.hardware.input.IInputFilter"
         private const val IINPUT_FILTER_CLASS = "android.hardware.input.IInputFilter"
-
-        // Transaction codes from IInputFilter.aidl (stable across Android versions)
         private const val TRANSACTION_ON_INPUT_EVENT = 1
         private const val TRANSACTION_ON_INSTALLED = 2
         private const val TRANSACTION_ON_UNINSTALLED = 3
