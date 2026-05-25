@@ -139,16 +139,13 @@ class FloatingBubbleService : Service() {
         )
         floatingBubbleLP.gravity = Gravity.START or Gravity.TOP
 
-        // Контейнер с клавишами — изначально в режиме игры (collapsed)
-        val itemsContainerLP = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        )
+        // Контейнер с клавишами — наследуем LayoutParams от bubble (WRAP_CONTENT)
+        // чтобы не триггерить Game Launcher/Samsung блокировку оверлеев.
+        // После запуска coroutine collector сразу расширит до MATCH_PARENT,
+        // но к тому моменту игра уже проинициализирует SurfaceView.
+        val itemsContainerLP = WindowManager.LayoutParams()
+        itemsContainerLP.copyFrom(floatingBubbleLP)
+        itemsContainerLP.flags = itemsContainerLP.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
 
         containerView =
             getItemsContainerView { id ->
@@ -189,7 +186,8 @@ class FloatingBubbleService : Service() {
                     itemsContainerLP.flags =
                         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                     stateManager.get().windowManager.updateViewLayout(
                         containerView,
                         itemsContainerLP
