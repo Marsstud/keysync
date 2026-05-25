@@ -15,14 +15,14 @@ android {
     namespace = "com.devoid.keysync"
     compileSdk = 35
 
-    signingConfigs {
-        create("release") {
-            storeFile = file(property("storeFile")!!)
-            storePassword = property("storePassword") as String
-            keyAlias = property("keyAlias") as String
-            keyPassword = property("keyPassword") as String
-        }
-    }
+    // signingConfigs {
+    //     create("release") {
+    //         storeFile = file(property("storeFile")!!)
+    //         storePassword = property("storePassword") as String
+    //         keyAlias = property("keyAlias") as String
+    //         keyPassword = property("keyPassword") as String
+    //     }
+    // }
 
 
     defaultConfig {
@@ -37,8 +37,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            // signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.navigation.compose)
     implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.window.manager)
     ksp("com.google.dagger:hilt-android-compiler:2.55")
     implementation("com.google.dagger:hilt-android:2.55")
     implementation(libs.androidx.core.ktx)

@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.devoid.keysync.MainActivityViewModel
+import com.devoid.keysync.util.FoldStateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -166,13 +167,19 @@ fun PackagesLayout(
     modifier: Modifier = Modifier,
     viewModel: MainActivityViewModel,
     packages: List<String>,
+    windowSizeClass: FoldStateManager.WindowSizeClass = FoldStateManager.WindowSizeClass.COMPACT,
     isSelected: (Int) -> Boolean = { false },
     onClick: (Int) -> Unit,
     onLongClick: (Int) -> Unit = {}
 ) {
+    val columns = when (windowSizeClass) {
+        FoldStateManager.WindowSizeClass.EXPANDED -> GridCells.Adaptive(100.dp)
+        FoldStateManager.WindowSizeClass.MEDIUM -> GridCells.FixedSize(80.dp)
+        FoldStateManager.WindowSizeClass.COMPACT -> GridCells.FixedSize(60.dp)
+    }
     LazyVerticalGrid(
         modifier = modifier,
-        columns = GridCells.FixedSize(60.dp),
+        columns = columns,
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally)
     ) {
@@ -215,6 +222,7 @@ fun MainScreen(
     appName: String ,
     viewModel: MainActivityViewModel,
     snackbarHostState: SnackbarHostState,
+    windowSizeClass: FoldStateManager.WindowSizeClass = FoldStateManager.WindowSizeClass.COMPACT,
     onNavigateToSettings:()->Unit,
     onPackageIconClick:(String)->Unit
 ) {
@@ -357,6 +365,7 @@ fun MainScreen(
         ) {
             PackagesLayout(packages = packages,
                 viewModel = viewModel,
+                windowSizeClass = windowSizeClass,
                 isSelected = {
                     selectedPackages[it] ?: false
                 },

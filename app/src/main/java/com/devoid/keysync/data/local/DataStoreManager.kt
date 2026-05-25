@@ -4,11 +4,16 @@ import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.devoid.keysync.model.AppConfig
+import com.devoid.keysync.model.DisplayContext
 import com.devoid.keysync.model.DraggableItem
+import com.devoid.keysync.model.toAbsolute
+import com.devoid.keysync.model.toRelative
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
@@ -25,6 +30,9 @@ class DataStoreManager @Inject constructor(private val context: Context) {
         val POINTER_SENSITIVITY = floatPreferencesKey("pointer_sensitivity")
         val OVERLAY_OPACITY = floatPreferencesKey("overlay_opacity")
         val KEYS_CONFIG = stringPreferencesKey("keys_config")
+        val DATA_SCHEMA_VERSION = intPreferencesKey("data_schema_version")
+
+        const val CURRENT_SCHEMA_VERSION = 1
     }
     
     fun getButtonsConfigKeys(): Flow<List<Preferences.Key<String>>> {
@@ -113,6 +121,45 @@ class DataStoreManager @Inject constructor(private val context: Context) {
     fun getFloat(key: Preferences.Key<Float>): Flow<Float?> {
         return context.datastore.data.map { pref ->
             pref[key]
+        }
+    }
+
+    suspend fun migrateSchemaIfNeeded(displayContext: DisplayContext) {
+        val currentVersion = context.datastore.data.first()[DATA_SCHEMA_VERSION] ?: 0
+        if (currentVersion >= CURRENT_SCHEMA_VERSION) return
+
+        val buttonKeys = getButtonsConfigKeys().first()
+        for (key in buttonKeys) {
+            val json = context.datastore.data.first()[key] ?: continue
+            val items = Json.decodeFromString<List<DraggableItem>>(json)
+            if (items.isEmpty()) continue
+            // If the first item has position x > 1, it's in absolute pixels — convert
+            if (items.first().position.x > 1f) {
+                val relativeItems = items.toRelative(displayContext)
+                context.datastore.edit { pref ->
+                    pref[key] = Json.encodeToString(relativeItems)
+                }
+            }
+        }
+
+        context.datastore.edit { pref ->
+            pref[DATA_SCHEMA_VERSION] = CURRENT_SCHEMA_VERSION
+        }
+    }
+
+    suspend fun saveButtons(key: Preferences.Key<String>, items: List<DraggableItem>, displayContext: DisplayContext) {
+        val relativeItems = items.toRelative(displayContext)
+        val json = Json.encodeToString(relativeItems)
+        context.datastore.edit { pref ->
+            pref[key] = json
+        }
+    }
+
+    fun getButtonsWithContext(key: Preferences.Key<String>, displayContext: DisplayContext): Flow<List<DraggableItem>> {
+        return context.datastore.data.map { pref ->
+            val json = pref[key] ?: return@map emptyList()
+            val items = Json.decodeFromString<List<DraggableItem>>(json)
+            items.toAbsolute(displayContext)
         }
     }
 

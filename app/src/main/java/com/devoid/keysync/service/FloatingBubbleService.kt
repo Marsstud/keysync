@@ -270,6 +270,39 @@ class FloatingBubbleService : Service() {
     }
 
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        stateManager.get().reloadItemsAfterDisplayChange()
+
+        containerView?.let { cView ->
+            val itemsContainerLP = cView.layoutParams as? WindowManager.LayoutParams
+            if (itemsContainerLP != null) {
+                itemsContainerLP.width = WindowManager.LayoutParams.MATCH_PARENT
+                itemsContainerLP.height = cView.rootView?.height ?: 0
+                try {
+                    stateManager.get().windowManager.updateViewLayout(cView, itemsContainerLP)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update container layout on config change", e)
+                }
+            }
+        }
+
+        floatingBubbleView?.let { bView ->
+            val displayMetrics = resources.displayMetrics
+            if (floatingBubbleLP.x > displayMetrics.widthPixels) {
+                floatingBubbleLP.x = displayMetrics.widthPixels - bView.width
+            }
+            if (floatingBubbleLP.y > displayMetrics.heightPixels) {
+                floatingBubbleLP.y = displayMetrics.heightPixels - bView.height
+            }
+            try {
+                stateManager.get().windowManager.updateViewLayout(bView, floatingBubbleLP)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to update bubble layout on config change", e)
+            }
+        }
+    }
+
     override fun onBind(p0: Intent?): IBinder? {
         return null
     }

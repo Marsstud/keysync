@@ -40,12 +40,14 @@ import com.devoid.keysync.ui.AboutScreen
 import com.devoid.keysync.ui.MainScreen
 import com.devoid.keysync.ui.SettingsScreen
 import com.devoid.keysync.ui.theme.KeySyncTheme
+import com.devoid.keysync.util.FoldStateManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuProvider
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -53,6 +55,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         val INTENT_ACTION_SETTINGS = "navigateToSettings"
     }
+
+    @Inject
+    lateinit var foldStateManager: FoldStateManager
 
     private val TAG = this::class.simpleName
     private val viewModel: MainActivityViewModel by viewModels()
@@ -70,6 +75,9 @@ class MainActivity : ComponentActivity() {
             val uiState by viewModel.shizukuState.collectAsStateWithLifecycle()
             val isServiceRunning by FloatingBubbleService.isRunning.collectAsStateWithLifecycle()
             val appConfig by viewModel.appConfig.collectAsStateWithLifecycle()
+            val windowSizeClass by foldStateManager.windowSizeClass.collectAsStateWithLifecycle(
+                initialValue = FoldStateManager.WindowSizeClass.COMPACT
+            )
             val snackbarHostState = remember { SnackbarHostState() }
             val navController = rememberNavController()
             KeySyncTheme(
@@ -108,6 +116,7 @@ class MainActivity : ComponentActivity() {
                             viewModel = viewModel,
                             snackbarHostState = snackbarHostState,
                             appName = getString(R.string.app_name),
+                            windowSizeClass = windowSizeClass,
                             onNavigateToSettings = {
                                 navController.navigate(route = SettingsScreen)
                             }
@@ -127,6 +136,7 @@ class MainActivity : ComponentActivity() {
                         popEnterTransition = { EnterTransition.None }) {
                         SettingsScreen(
                             appConfig = viewModel.appConfig.value,
+                            windowSizeClass = windowSizeClass,
                             onNavigateBack = navController::popBackStack,
                             onNavigateAbout = { navController.navigate(route = AboutScreen) },
                             onSave = {

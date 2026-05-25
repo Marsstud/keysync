@@ -12,6 +12,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.datastore.preferences.core.Preferences
 import com.devoid.keysync.data.local.DataStoreManager
 import com.devoid.keysync.model.AppConfig
+import com.devoid.keysync.model.DisplayContext
 import com.devoid.keysync.model.DraggableItem
 import com.devoid.keysync.model.DraggableItemType
 import com.devoid.keysync.domain.EventHandler
@@ -37,7 +38,11 @@ class FloatingWindowStateManager @Inject constructor(
     private val shizukuSystemServerAPi = ShizukuSystemServerAPi()
     private val eventHandler: EventHandler by lazy { shizukuSystemServerAPi.getEventHandler() }
     val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
-    private val displayMetrics = context.resources.displayMetrics
+    private val displayMetrics: android.util.DisplayMetrics
+        get() = context.resources.displayMetrics
+
+    private val displayContext: DisplayContext
+        get() = DisplayContext.fromResources(context.resources)
 
     val pointerSensitivity = MutableStateFlow(0.5f)
     val overlayOpacity = MutableStateFlow(0.5f)
@@ -47,7 +52,7 @@ class FloatingWindowStateManager @Inject constructor(
     private val _appConfig =MutableStateFlow(AppConfig.Default)
     val keysConfig = _appConfig.asStateFlow()
 
-    val sensitivity = (10f * pointerSensitivity.value)//at max 10x the original offset
+    val sensitivity: Float get() = (10f * pointerSensitivity.value)//at max 10x the original offset
 
     private val _isBubbleExpanded = MutableStateFlow(false)
     val isBubbleExpanded = _isBubbleExpanded.asStateFlow()
@@ -69,7 +74,7 @@ class FloatingWindowStateManager @Inject constructor(
                 buttonConfigKey?.let {
                     dataStoreManager.save(DataStoreManager.OVERLAY_OPACITY,overlayOpacity.value)
                     dataStoreManager.save(DataStoreManager.POINTER_SENSITIVITY,pointerSensitivity.value)
-                    dataStoreManager.save(it,containerItems.value)
+                    dataStoreManager.saveButtons(it, containerItems.value, displayContext)
                 }
                 _appConfig.value = dataStoreManager.getKeyConfig(DataStoreManager.KEYS_CONFIG).first()
             }
@@ -86,7 +91,8 @@ class FloatingWindowStateManager @Inject constructor(
     fun loadButtonsConfig(packageName:String){
         buttonConfigKey= DataStoreManager.getButtonsConfigKey(packageName)
         scope.launch {
-            _containerItems.value=dataStoreManager.getButtons(buttonConfigKey!!).first()
+            dataStoreManager.migrateSchemaIfNeeded(displayContext)
+            _containerItems.value = dataStoreManager.getButtonsWithContext(buttonConfigKey!!, displayContext).first()
             eventHandler.updateKeyMapping(containerItems.value)
             dataStoreManager.getFloat(DataStoreManager.OVERLAY_OPACITY).first()?.let {
                 overlayOpacity.value = it
@@ -202,6 +208,25 @@ class FloatingWindowStateManager @Inject constructor(
 
     fun clearActivePointers() {
         eventHandler.clear()
+    }
+
+    fun updateMousePointerBounds() {
+        val dm = displayMetrics
+        val currentOffset = _mousePointerOffset.value
+        _mousePointerOffset.value = Offset(
+            currentOffset.x.coerceIn(0f, dm.widthPixels.toFloat()),
+            currentOffset.y.coerceIn(0f, dm.heightPixels.toFloat())
+        )
+    }
+
+    fun reloadItemsAfterDisplayChange() {
+        updateMousePointerBounds()
+        buttonConfigKey?.let { key ->
+            scope.launch {
+                _containerItems.value = dataStoreManager.getButtonsWithContext(key, displayContext).first()
+                eventHandler.updateKeyMapping(containerItems.value)
+            }
+        }
     }
 
     fun onDestroy(){
