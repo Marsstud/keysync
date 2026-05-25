@@ -16,6 +16,7 @@ import com.devoid.keysync.model.DisplayContext
 import com.devoid.keysync.model.DraggableItem
 import com.devoid.keysync.model.DraggableItemType
 import com.devoid.keysync.domain.EventHandler
+import com.devoid.keysync.data.external.ShizukuInputMonitor
 import com.devoid.keysync.data.external.ShizukuSystemServerAPi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,7 @@ class FloatingWindowStateManager @Inject constructor(
 
     private val shizukuSystemServerAPi = ShizukuSystemServerAPi()
     private val eventHandler: EventHandler by lazy { shizukuSystemServerAPi.getEventHandler() }
+    private val inputMonitor: ShizukuInputMonitor by lazy { ShizukuInputMonitor(eventHandler) }
     val windowManager: WindowManager by lazy { context.getSystemService(WindowManager::class.java) }
     private val displayMetrics: android.util.DisplayMetrics
         get() = context.resources.displayMetrics
@@ -88,7 +90,7 @@ class FloatingWindowStateManager @Inject constructor(
 
     }
 
-    fun loadButtonsConfig(packageName:String){
+    fun loadButtonsConfig(packageName: String){
         buttonConfigKey= DataStoreManager.getButtonsConfigKey(packageName)
         scope.launch {
             dataStoreManager.migrateSchemaIfNeeded(displayContext)
@@ -100,6 +102,8 @@ class FloatingWindowStateManager @Inject constructor(
             dataStoreManager.getFloat(DataStoreManager.POINTER_SENSITIVITY).first()?.let {
                 pointerSensitivity.value = it
             }
+            // Захват клавиш через Shizuku в gaming-режиме (без фокуса окна)
+            inputMonitor.start()
         }
     }
 
@@ -163,7 +167,12 @@ class FloatingWindowStateManager @Inject constructor(
     fun onFloatingBubbleClick() {
         _isBubbleExpanded.value = !_isBubbleExpanded.value
         if (!_isBubbleExpanded.value) {
+            // Сворачиваем → режим игры: захват клавиш через Shizuku (без фокуса окна)
             eventHandler.updateKeyMapping(containerItems.value)
+            inputMonitor.start()
+        } else {
+            // Разворачиваем → режим настройки: захват клавиш через OnKeyListener оверлея
+            inputMonitor.stop()
         }
     }
 
@@ -231,6 +240,7 @@ class FloatingWindowStateManager @Inject constructor(
 
     fun onDestroy(){
         _isBubbleExpanded.value = false
+        inputMonitor.stop()
         eventHandler.clear()
     }
 

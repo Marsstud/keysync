@@ -139,8 +139,16 @@ class FloatingBubbleService : Service() {
         )
         floatingBubbleLP.gravity = Gravity.START or Gravity.TOP
 
-        val itemsContainerLP = WindowManager.LayoutParams()
-        itemsContainerLP.copyFrom(floatingBubbleLP)
+        // Контейнер с клавишами — изначально в режиме игры (collapsed)
+        val itemsContainerLP = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        )
 
         containerView =
             getItemsContainerView { id ->
@@ -163,34 +171,41 @@ class FloatingBubbleService : Service() {
                     height = containerView?.rootView?.height ?: 0
                 }
                 if (expanded) {
+                    // Конфигурация клавиш — оверлей интерактивный
                     itemsContainerLP.flags =
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    stateManager.get().windowManager.updateViewLayout(
-                        containerView,
-                        itemsContainerLP
-                    )
-                    containerView?.clearFocus()
-                    containerView?.releasePointerCapture()
-                    stateManager.get().clearActivePointers()
-                } else {
-                    itemsContainerLP.flags =
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                     stateManager.get().windowManager.updateViewLayout(
                         containerView,
                         itemsContainerLP
                     )
                     containerView?.requestFocus()
-                    containerView?.requestPointerCapture()
+                    stateManager.get().clearActivePointers()
+                } else {
+                    // Режим игры — оверлей не крадет фокус и не блокирует SurfaceView
+                    // FLAG_NOT_FOCUSABLE: игра сохраняет фокус и рендеринг
+                    // FLAG_NOT_TOUCHABLE: тач проходит сквозь на игру
+                    // FLAG_LAYOUT_IN_SCREEN: рисуем поверх всего
+                    itemsContainerLP.flags =
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    stateManager.get().windowManager.updateViewLayout(
+                        containerView,
+                        itemsContainerLP
+                    )
+                    // НЕ вызываем requestFocus() — это крадет фокус у игры
                 }
             }
         }
         stateManager.get().windowManager.addView(containerView, itemsContainerLP)
         floatingBubbleLP.y = 200
         stateManager.get().windowManager.addView(floatingBubbleView, floatingBubbleLP)
+        // Запрос захвата указателя (мышь) работает даже без фокуса окна
         containerView?.postDelayed({
-            containerView?.requestFocus()
             containerView?.requestPointerCapture()
         }, 1000)
+        // НЕ вызываем requestFocus() — это перехватит фокус у игры
     }
 
 
